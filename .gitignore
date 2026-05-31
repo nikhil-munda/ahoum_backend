@@ -21,6 +21,8 @@ staticfiles/
 
 # Celery
 celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
 celerybeat.pid
 
 # IDEs
@@ -40,3 +42,8 @@ build/
 .coverage
 htmlcov/
 .pytest_cache/
+tests/
+pytest.ini
+postman/
+
+PROJECT_PLAN.md

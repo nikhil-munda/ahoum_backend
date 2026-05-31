@@ -1,88 +1,158 @@
-# Ahoum Events Platform
+# Ahoum Events Platform — Backend API
 
-A Django REST Framework backend for an events platform with two roles — **Seeker** and **Facilitator** — supporting event creation, OTP-gated auth, search, and enrollment.
+A production-ready REST API for an events platform with two roles: **facilitators** who create and manage events, and **seekers** who discover and enroll in them. Built with Django, Django REST Framework, PostgreSQL, Celery, and Redis.
 
 ---
 
-## Architecture
+## Project Overview
 
-```
-Django 4.2 LTS
-├── djangorestframework          REST API layer
-├── djangorestframework-simplejwt  JWT auth (access + refresh + blacklist)
-├── django-filter                Search/filter for event listings
-├── psycopg2-binary              PostgreSQL driver
-├── python-decouple              12-factor env var management
-└── celery[redis] + django-celery-beat  Scheduled mail (bonus)
+Ahoum is a role-based event management system. The backend exposes a JSON API covering:
 
-PostgreSQL
-└── Partial unique index on (event, seeker) WHERE status='enrolled'
-    Allows re-enrollment after cancellation without storing duplicate rows.
-```
+- Email + OTP two-step signup with role assignment
+- JWT-based authentication with rotating refresh tokens
+- Full event lifecycle (create, browse, update, delete)
+- Capacity-controlled, race-condition-safe enrollment
+- Automated follow-up and reminder emails via Celery
 
-### App layout
+---
 
-```
-apps/
-├── core/         Exception handler, pagination, permissions, utils
-├── accounts/     Auth: User, UserProfile, OTP, JWT endpoints
-└── events/       Event & Enrollment models, CRUD, search, enrollment
-```
+## Features
 
-### Settings split
-
-| File | Used for |
+| Feature | Details |
 |---|---|
-| `ahoum/settings/base.py` | Shared — DB, DRF, JWT, email, Celery |
-| `ahoum/settings/local.py` | Development — `DEBUG=True`, console email |
-| `ahoum/settings/production.py` | Production — security headers, SSL |
+| Email + OTP signup | 6-digit cryptographically secure OTP; configurable expiry and attempt limit |
+| Role-based access control | `seeker` browses and enrolls; `facilitator` creates and manages events |
+| JWT authentication | 15-minute access token + 7-day rotating refresh token with blacklisting |
+| Event CRUD | Create, list, retrieve, partial update (PATCH), full update (PUT), delete |
+| Owner-only mutation guard | Object-level `IsEventOwner` permission blocks other facilitators from editing |
+| Capacity enforcement | `SELECT FOR UPDATE` inside `transaction.atomic()` prevents over-enrollment |
+| Event filtering | `location`, `language`, date range, and free-text search over title + description |
+| Pagination | Page-number pagination; default 10 per page, max 100 via `?page_size=N` |
+| Facilitator dashboard | `GET /events/my/` annotates each event with active enrollment count and available seats |
+| Enrollment history | Separate upcoming and past enrollment views for seekers |
+| Email notifications | Follow-up email ~1 hour after enrollment; reminder email ~1 hour before event start |
+| Normalised error responses | All errors return `{"detail": "...", "code": "..."}` |
 
 ---
 
-## Setup
+## Tech Stack
+
+| Layer | Technology | Version |
+|---|---|---|
+| Web framework | Django | 4.2.30 |
+| REST API | Django REST Framework | 3.17.1 |
+| Database | PostgreSQL | 15 |
+| Async task queue | Celery | 5.6.3 |
+| Message broker | Redis | 7 |
+| JWT | djangorestframework-simplejwt | 5.5.1 |
+| Filtering | django-filter | 25.1 |
+| DB driver | psycopg2-binary | 2.9.12 |
+| Config management | python-decouple | 3.8 |
+| Containerisation | Docker + Docker Compose | — |
+
+---
+
+## Architecture Overview
+
+```
+Client (HTTP)
+     │
+     ▼
+┌─────────────────────────────────────┐
+│          Django / DRF               │
+│  (accounts · events · core apps)    │
+└──────────────┬──────────────────────┘
+               │
+       ┌───────┴────────┐
+       ▼                ▼
+  PostgreSQL          Redis
+  (primary DB)     (Celery broker)
+                        │
+               ┌────────┴────────┐
+               ▼                 ▼
+         Celery Worker      Celery Beat
+         (email send)       (60s schedule)
+               │
+               ▼
+             SMTP
+```
+
+---
+
+## Project Structure
+
+```
+ahoum_backend/
+├── ahoum/
+│   ├── settings/
+│   │   ├── base.py           # Shared: DB, JWT, Celery, DRF, email
+│   │   ├── local.py          # Dev overrides: DEBUG=True, console email
+│   │   └── production.py     # Production overrides
+│   ├── celery.py             # Celery app initialisation
+│   ├── urls.py               # Root URL conf (/, /auth/, /events/, /admin/)
+│   ├── asgi.py
+│   └── wsgi.py
+├── apps/
+│   ├── core/
+│   │   ├── exceptions.py     # custom_exception_handler (normalises all DRF errors)
+│   │   ├── pagination.py     # StandardResultsPagination (page_size=10, max=100)
+│   │   ├── permissions.py    # IsEmailVerified, IsSeeker, IsFacilitator
+│   │   └── utils.py          # generate_otp(), aware_utcnow()
+│   ├── accounts/
+│   │   ├── models.py         # UserProfile, OTPVerification
+│   │   ├── views.py          # SignupAPIView, VerifyEmailAPIView, LoginAPIView
+│   │   ├── serializers.py    # SignupSerializer, OTPVerifySerializer, LoginSerializer
+│   │   ├── services.py       # generate_and_send_otp(), verify_otp()
+│   │   ├── backends.py       # EmailAuthBackend (email+password lookup)
+│   │   ├── exceptions.py     # OTPNotFoundException, OTPExpiredException, …
+│   │   ├── signals.py        # post_save → auto-create UserProfile
+│   │   └── urls.py
+│   └── events/
+│       ├── models.py         # Event, Enrollment
+│       ├── views.py          # EventViewSet, UpcomingEnrollmentsView, PastEnrollmentsView
+│       ├── serializers.py    # EventSerializer, EventWithCountsSerializer, EnrollmentDetailSerializer
+│       ├── filters.py        # EventFilter (location, language, starts_after/before, q)
+│       ├── permissions.py    # IsEventOwner (object-level)
+│       ├── tasks.py          # send_enrollment_followup, send_event_reminder
+│       └── urls.py
+├── postman/
+│   ├── Ahoum_Events_Platform.postman_collection.json
+│   └── Ahoum_Local.postman_environment.json
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+├── manage.py
+└── .env
+```
+
+---
+
+## Setup Instructions
 
 ### Prerequisites
-- Python 3.11+
-- PostgreSQL 15+
-- Redis (optional — Celery scheduled mail)
 
-### 1. Clone & create virtual environment
+- Python 3.11+
+- PostgreSQL 15
+- Redis 7
+- Docker + Docker Compose (for containerised setup)
+
+### Local Setup (no Docker)
 
 ```bash
+# 1. Clone and enter the repo
 git clone <repo-url>
 cd ahoum_backend
+
+# 2. Create and activate a virtual environment
 python3 -m venv venv
 source venv/bin/activate
+
+# 3. Install dependencies
 pip install -r requirements.txt
+
+# 4. Configure environment variables
+cp .env.example .env   # then edit values as required
 ```
-
-### 2. Configure environment
-
-```bash
-cp .env.example .env
-# Edit .env with your values (see Environment Variables below)
-```
-
-### 3. Create PostgreSQL database
-
-```bash
-createuser -s postgres          # if the role doesn't exist
-createdb -U postgres ahoum_db
-```
-
-### 4. Run migrations
-
-```bash
-python manage.py migrate
-```
-
-### 5. Start development server
-
-```bash
-python manage.py runserver
-```
-
-API is available at `http://localhost:8000`.
 
 ---
 
@@ -94,171 +164,217 @@ API is available at `http://localhost:8000`.
 | `DEBUG` | No | `False` | Enable debug mode |
 | `ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | Comma-separated allowed hosts |
 | `DB_NAME` | No | `ahoum_db` | PostgreSQL database name |
-| `DB_USER` | No | `postgres` | PostgreSQL user |
+| `DB_USER` | No | `postgres` | PostgreSQL username |
 | `DB_PASSWORD` | Yes | — | PostgreSQL password |
 | `DB_HOST` | No | `localhost` | PostgreSQL host |
 | `DB_PORT` | No | `5432` | PostgreSQL port |
-| `EMAIL_BACKEND` | No | `console.EmailBackend` | Django email backend |
+| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection URL (Celery broker + backend) |
+| `OTP_EXPIRY_MINUTES` | No | `5` | OTP validity window in minutes |
+| `OTP_MAX_ATTEMPTS` | No | `5` | Maximum OTP verification attempts before lockout |
+| `EMAIL_BACKEND` | No | `console.EmailBackend` | Django email backend class |
 | `EMAIL_HOST` | No | `smtp.gmail.com` | SMTP host |
 | `EMAIL_PORT` | No | `587` | SMTP port |
-| `EMAIL_USE_TLS` | No | `True` | Enable TLS |
+| `EMAIL_USE_TLS` | No | `True` | Enable STARTTLS |
 | `EMAIL_HOST_USER` | No | — | SMTP username |
-| `EMAIL_HOST_PASSWORD` | No | — | SMTP password / app password |
-| `DEFAULT_FROM_EMAIL` | No | `noreply@ahoum.com` | Sender address |
-| `OTP_EXPIRY_MINUTES` | No | `5` | OTP TTL in minutes |
-| `OTP_MAX_ATTEMPTS` | No | `5` | Max wrong OTP guesses |
-| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis for Celery |
+| `EMAIL_HOST_PASSWORD` | No | — | SMTP password |
+| `DEFAULT_FROM_EMAIL` | No | `noreply@ahoum.com` | Sender address for all outgoing mail |
 
 ---
 
-## Local Development
-
-### Create a superuser
+## Database Setup
 
 ```bash
-python manage.py createsuperuser
-```
+# Create the PostgreSQL database
+createdb -U postgres ahoum_db
 
-### Django Admin
-
-Available at `http://localhost:8000/admin/`. Models registered: `User`, `UserProfile`, `OTPVerification`, `Event`, `Enrollment`.
-
-### Email in development
-
-`local.py` sets `EMAIL_BACKEND = console.EmailBackend`. OTP codes are printed to the terminal — no SMTP setup required.
-
-To use a real SMTP backend locally, set `EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend` in `.env` and fill in the SMTP vars.
-
-### Docker (optional)
-
-```bash
-docker-compose up --build
-```
-
-Services: `db` (PostgreSQL), `redis`, `web` (Django), `celery`.
-
----
-
-## Migrations
-
-```bash
-# Apply all migrations
-python manage.py migrate
-
-# Create new migrations after model changes
-python manage.py makemigrations
-
-# Check for unapplied migrations
-python manage.py migrate --check
+# Or via psql
+psql -U postgres -c "CREATE DATABASE ahoum_db;"
 ```
 
 ---
 
-## Running Tests
+## Running Migrations
 
 ```bash
-# All tests
-pytest
-
-# Verbose output (already default via pytest.ini)
-pytest -v
-
-# Single file
-pytest tests/test_auth.py
-
-# Single class or test
-pytest tests/test_enrollment.py::TestEnroll::test_success_returns_201
-
-# With coverage (requires pytest-cov)
-pytest --cov=apps --cov-report=term-missing
+python manage.py migrate --settings=ahoum.settings.local
 ```
-
-Tests use PostgreSQL (same DB engine as production). Each test runs in a transaction that is rolled back on completion — no manual cleanup required.
 
 ---
 
-## API Endpoints
+## Running the Application
 
-### Auth
+```bash
+python manage.py runserver --settings=ahoum.settings.local
+# API available at http://localhost:8000/
+```
 
-| Method | URL | Auth | Description |
+In development, `local.py` sets `EMAIL_BACKEND = console.EmailBackend` — OTP codes are printed to the terminal instead of being sent via SMTP.
+
+---
+
+## Running Docker
+
+Docker Compose starts five services: `db` (PostgreSQL), `redis`, `web` (Django), `celery` (worker), and `celery-beat` (scheduler). The `web` service automatically runs migrations on startup.
+
+```bash
+# Build and start all services
+docker compose up --build
+
+# Run detached
+docker compose up -d --build
+
+# Stop and remove containers
+docker compose down
+
+# Tail logs for a specific service
+docker compose logs -f web
+docker compose logs -f celery
+```
+
+---
+
+## Running Celery Worker
+
+```bash
+celery -A ahoum worker --loglevel=info
+```
+
+---
+
+## Running Celery Beat
+
+```bash
+celery -A ahoum beat --loglevel=info --scheduler celery.beat.PersistentScheduler
+```
+
+---
+
+## API Authentication Flow
+
+```
+Step 1 — Register
+  POST /auth/signup/
+  Body: { "email": "...", "password": "...", "role": "seeker" | "facilitator" }
+  → 200 { "detail": "Verification code sent to your email." }
+
+Step 2 — Verify email
+  POST /auth/verify-email/
+  Body: { "email": "...", "otp": "123456" }
+  → 200 { "detail": "Email verified successfully." }
+
+Step 3 — Login
+  POST /auth/login/
+  Body: { "email": "...", "password": "..." }
+  → 200 { "access": "<jwt>", "refresh": "<jwt>" }
+
+Step 4 — Authenticated requests
+  Header: Authorization: Bearer <access token>
+
+Step 5 — Refresh
+  POST /auth/refresh/
+  Body: { "refresh": "<refresh token>" }
+  → 200 { "access": "<new jwt>", "refresh": "<rotated jwt>" }
+```
+
+JWT tokens expire after **15 minutes** (access) and **7 days** (refresh). The refresh token is rotated on every use and the old token is blacklisted.
+
+---
+
+## API Endpoints Summary
+
+### Authentication
+
+| Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| `POST` | `/auth/signup/` | Public | Register; sends OTP |
-| `POST` | `/auth/verify-email/` | Public | Submit OTP; enables login |
-| `POST` | `/auth/login/` | Public | Returns `access` + `refresh` JWT |
-| `POST` | `/auth/refresh/` | Public | Rotate refresh token |
+| POST | `/auth/signup/` | None | Register a new user; sends OTP to email |
+| POST | `/auth/verify-email/` | None | Submit 6-digit OTP to verify email |
+| POST | `/auth/login/` | None | Authenticate; returns access + refresh tokens |
+| POST | `/auth/refresh/` | None | Rotate refresh token; returns new access token |
 
-### Events — Seeker
+### Events
 
-| Method | URL | Description |
-|---|---|---|
-| `GET` | `/events/` | Search upcoming events (filters: `location`, `language`, `starts_after`, `starts_before`, `q`) |
-| `POST` | `/events/{id}/enroll/` | Enroll in event |
-| `DELETE` | `/events/{id}/enroll/` | Cancel enrollment |
-| `GET` | `/enrollments/upcoming/` | Active enrollments in future events |
-| `GET` | `/enrollments/past/` | Active enrollments in ended events |
+| Method | Endpoint | Role | Description |
+|---|---|---|---|
+| POST | `/events/` | Facilitator | Create an event |
+| GET | `/events/` | Seeker | Browse upcoming events (filterable, paginated) |
+| GET | `/events/{id}/` | Any verified | Retrieve a single event |
+| PATCH | `/events/{id}/` | Facilitator + Owner | Partially update an event |
+| PUT | `/events/{id}/` | Facilitator + Owner | Fully replace an event |
+| DELETE | `/events/{id}/` | Facilitator + Owner | Delete (blocked if active enrollments exist) |
+| GET | `/events/my/` | Facilitator | Own events with enrollment counts and available seats |
 
-### Events — Facilitator
+### Enrollments
 
-| Method | URL | Description |
-|---|---|---|
-| `POST` | `/events/` | Create event |
-| `GET` | `/events/my/` | Own events with `total_enrollments` + `available_seats` |
-| `GET` | `/events/{id}/` | Retrieve event detail |
-| `PUT` | `/events/{id}/` | Full update (owner only) |
-| `PATCH` | `/events/{id}/` | Partial update (owner only) |
-| `DELETE` | `/events/{id}/` | Delete (owner only; blocked if active enrollments exist) |
+| Method | Endpoint | Role | Description |
+|---|---|---|---|
+| POST | `/events/{id}/enroll/` | Seeker | Enroll in an event |
+| DELETE | `/events/{id}/enroll/` | Seeker | Cancel active enrollment |
+| GET | `/enrollments/upcoming/` | Seeker | Active enrollments in future events |
+| GET | `/enrollments/past/` | Seeker | Active enrollments in ended events |
 
-### Response formats
+### List Events — Supported Query Parameters
 
-**Success (list):**
-```json
-{ "count": 10, "next": "...", "previous": null, "results": [...] }
-```
+| Parameter | Description |
+|---|---|
+| `location` | Case-insensitive substring match on `location` |
+| `language` | Case-insensitive exact match on `language` |
+| `starts_after` | ISO 8601 — events starting at or after this datetime |
+| `starts_before` | ISO 8601 — events starting at or before this datetime |
+| `q` | Full-text search across `title` and `description` |
+| `ordering` | `starts_at` or `title`; prefix `-` for descending |
+| `page` | Page number (default `1`) |
+| `page_size` | Results per page (default `10`, max `100`) |
 
-**Error:**
-```json
-{ "detail": "Human-readable message.", "code": "machine_readable_code" }
-```
+---
+
+## Postman Collection Usage
+
+The collection and environment file are in `postman/`.
+
+**Import:**
+1. Postman → **Import** → `postman/Ahoum_Events_Platform.postman_collection.json`
+2. **Import** → `postman/Ahoum_Local.postman_environment.json`
+3. Select **Ahoum Local** from the environment dropdown (top-right)
+
+**Flow:**
+1. Run **Signup** with the desired role
+2. Run **Verify Email** with the OTP received
+3. Run **Login** → paste `access` value into `{{access_token}}`, `refresh` into `{{refresh_token}}`
+4. All protected requests inherit `Authorization: Bearer {{access_token}}` from the collection-level auth
 
 ---
 
 ## Design Decisions
 
-### Default Django User model + UserProfile
-
-The requirements prohibit swapping `AUTH_USER_MODEL`. A `UserProfile` (OneToOne) stores `role` and `is_email_verified`. Every `User.save()` triggers a `post_save` signal that creates the profile with a default role; the signup serializer immediately overwrites the role. This adds one JOIN per auth check, mitigated by `select_related` on hot paths.
-
-### `username = uuid4().hex` at signup
-
-Django's `User.username` is required and must be unique, but the spec bans exposing it. Rather than using `email` as username (which risks a 150-char truncation on long emails), we generate a 32-char UUID hex. `EmailAuthBackend` looks up users by `email` only; `username` is never returned by any serializer.
-
-### OTP plain-text storage
-
-OTPs expire in 5 minutes and are limited to 5 attempts. Storing them as plain text avoids a hash-comparison round-trip per request. The attack window is tiny; hashing would be added for a stricter security posture.
-
-### Partial unique index for Enrollment
-
-`UniqueConstraint(fields=[event, seeker], condition=Q(status='enrolled'))` lets a seeker cancel and re-enroll without duplicate-row errors. Requires PostgreSQL — SQLite does not support partial indexes.
-
-### `select_for_update()` in enrollment
-
-All capacity and duplicate checks run inside `transaction.atomic()` with a row-level lock on the event. This eliminates the TOCTOU race where two concurrent requests both pass the capacity check but together overfill the event.
-
-### Error shape `{ "detail", "code" }`
-
-A global DRF exception handler in `core/exceptions.py` normalises all three response shapes DRF can produce (dict with `detail`, field-error dict, list) into a single flat shape. Permission classes carry a `code` attribute that DRF forwards to `PermissionDenied(code=...)`, which flows through the handler automatically.
+| Decision | Rationale |
+|---|---|
+| `username = uuid4().hex` at signup | Email is the public identity. An opaque UUID username avoids exposing internal identifiers while reusing Django's built-in `User` model without a model swap. |
+| `OTP.max_attempts` stored on the row | Snapshotting `settings.OTP_MAX_ATTEMPTS` at creation time means a settings change mid-flight does not retroactively alter in-flight OTPs. |
+| Previous OTPs invalidated on re-signup | Ensures only one active OTP exists per user at any time; prevents replay of a previously issued code. |
+| `SELECT FOR UPDATE` on enrollment | Serialises concurrent enrollment requests for the same event row, eliminating the TOCTOU race where two requests both pass the capacity check but together overfill the event. |
+| `IsEventOwner.has_permission` returns `True` | Allows composition with view-level permissions without blocking non-object actions (`list`, `create`, `my_events`). The ownership check fires only at object level via `get_object()`. |
+| Refresh token rotation + blacklisting | Limits the blast radius of a stolen refresh token to a single use; the old token is immediately blacklisted after rotation. |
+| Celery Beat ±1 min jitter window | Each task checks enrollments/events within `[T−1min, T+1min]` rather than at an exact timestamp, compensating for scheduling drift without duplicating sends under normal conditions. |
+| Normalised error shape `{detail, code}` | `custom_exception_handler` in `core/exceptions.py` collapses all three shapes DRF can produce into one flat structure, giving clients a single parsing contract. |
 
 ---
 
 ## Tradeoffs
 
-| Decision | Benefit | Cost |
+| Area | Decision Made | Cost |
 |---|---|---|
-| UserProfile OneToOne | No model swap needed | Extra DB join on every auth check |
-| UUID username | Clean separation of auth identity from business identity | Custom `EmailAuthBackend` required |
-| Plain-text OTP | Simple, fast | Not suitable if longer TTL or DB exposure risk |
-| Partial unique index | Re-enrollment without extra state tracking | PostgreSQL only |
-| `select_for_update` on enroll | Correct under concurrent load | Serialises concurrent enrollments for the same event |
-| role embedded in UserProfile | Simple RBAC | No role hierarchy; adding roles requires a migration |
-| Celery + Redis for scheduled mail | Production-grade, scalable | Infrastructure overhead vs. APScheduler |
+| Email uniqueness | Enforced in `SignupSerializer`, not at the DB level (Django's default `User` model has no `UNIQUE` on `email`) | A race condition at the DB layer could create duplicate emails if the API layer is bypassed |
+| Plain-text OTP storage | Stored as-is; expires in 5 min with a 5-attempt limit | A DB read compromise exposes valid OTPs within their short window |
+| Enrollment soft-delete | Cancellation sets `status=canceled`; rows are never deleted | The enrollments table grows unbounded; historical data is preserved |
+| Celery Beat jitter window | Sends if `created_at` falls in `[now−61min, now−59min]` | On Beat restart or double-fire, a user enrolled exactly on the boundary could receive two follow-up emails |
+| Role embedded in `UserProfile` | Simple flat RBAC, easy to query | No role hierarchy; adding a third role requires a migration and a new permission class |
+
+---
+
+## Future Improvements
+
+- Add a DB-level `UNIQUE` constraint on `auth_user.email` via a custom `AbstractBaseUser` to close the duplicate-email race condition
+- Hash stored OTPs using PBKDF2 or Argon2 to defend against a DB read compromise
+- Add idempotency tracking to Celery email tasks (store a `task_sent_at` field on `Enrollment`) to guarantee at-most-once delivery across Beat restarts
+- Expose a `PATCH /auth/profile/` endpoint so users can update their display name or role
+- Add a `canceled_at` timestamp to `Enrollment` to support accurate analytics on cancellation patterns
