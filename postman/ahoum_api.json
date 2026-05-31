@@ -1,0 +1,249 @@
+{
+  "info": {
+    "name": "Ahoum Events Platform",
+    "description": "Complete API collection for the Ahoum Events Platform backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000", "type": "string" },
+    { "key": "access_token", "value": "", "type": "string" },
+    { "key": "refresh_token", "value": "", "type": "string" },
+    { "key": "event_id", "value": "1", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/signup/", "host": ["{{base_url}}"], "path": ["auth", "signup", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"SecurePass123!\",\n  \"role\": \"seeker\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Email",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/verify-email/", "host": ["{{base_url}}"], "path": ["auth", "verify-email", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"otp\": \"123456\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('access_token', body.access);",
+                  "  pm.collectionVariables.set('refresh_token', body.refresh);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/login/", "host": ["{{base_url}}"], "path": ["auth", "login", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"SecurePass123!\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('access_token', body.access);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/refresh/", "host": ["{{base_url}}"], "path": ["auth", "refresh", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Events — Facilitator",
+      "item": [
+        {
+          "name": "Create Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/events/", "host": ["{{base_url}}"], "path": ["events", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Intro to Django\",\n  \"description\": \"A beginner-friendly Django workshop.\",\n  \"language\": \"English\",\n  \"location\": \"New Delhi\",\n  \"starts_at\": \"2026-07-01T10:00:00Z\",\n  \"ends_at\": \"2026-07-01T13:00:00Z\",\n  \"capacity\": 30\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "My Events (Dashboard)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/events/my/", "host": ["{{base_url}}"], "path": ["events", "my", ""] }
+          },
+          "response": []
+        },
+        {
+          "name": "Retrieve Event",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/events/{{event_id}}/", "host": ["{{base_url}}"], "path": ["events", "{{event_id}}", ""] }
+          },
+          "response": []
+        },
+        {
+          "name": "Partial Update Event",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/events/{{event_id}}/", "host": ["{{base_url}}"], "path": ["events", "{{event_id}}", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Title\",\n  \"capacity\": 50\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Full Update Event",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/events/{{event_id}}/", "host": ["{{base_url}}"], "path": ["events", "{{event_id}}", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Intro to Django v2\",\n  \"description\": \"Updated description.\",\n  \"language\": \"English\",\n  \"location\": \"Mumbai\",\n  \"starts_at\": \"2026-07-10T10:00:00Z\",\n  \"ends_at\": \"2026-07-10T13:00:00Z\",\n  \"capacity\": 40\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Event",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/events/{{event_id}}/", "host": ["{{base_url}}"], "path": ["events", "{{event_id}}", ""] }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Events — Seeker",
+      "item": [
+        {
+          "name": "Search Events",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/events/?location=Delhi&language=English&q=Django&starts_after=2026-06-01T00:00:00Z&starts_before=2026-12-31T23:59:59Z&page=1&page_size=10",
+              "host": ["{{base_url}}"],
+              "path": ["events", ""],
+              "query": [
+                { "key": "location", "value": "Delhi" },
+                { "key": "language", "value": "English" },
+                { "key": "q", "value": "Django" },
+                { "key": "starts_after", "value": "2026-06-01T00:00:00Z" },
+                { "key": "starts_before", "value": "2026-12-31T23:59:59Z" },
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "10" }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Enroll in Event",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/events/{{event_id}}/enroll/", "host": ["{{base_url}}"], "path": ["events", "{{event_id}}", "enroll", ""] }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Enrollment",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/events/{{event_id}}/enroll/", "host": ["{{base_url}}"], "path": ["events", "{{event_id}}", "enroll", ""] }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Enrollments",
+      "item": [
+        {
+          "name": "Upcoming Enrollments",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/enrollments/upcoming/", "host": ["{{base_url}}"], "path": ["enrollments", "upcoming", ""] }
+          },
+          "response": []
+        },
+        {
+          "name": "Past Enrollments",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/enrollments/past/", "host": ["{{base_url}}"], "path": ["enrollments", "past", ""] }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+﻿12/25/25, 2:08 PM 
+Backend Task 
+Backend Task 
+Backend: Events Platform (Django) 
+Goal 
+Build a small "events" backend with auth, RBAC, search, and enrollments. The app serves 2 roles: 
+Seeker and Facilitator. You must use Django's default User model (do not swap it). Signup must 
+not accept username. 
+Core Requirements 
+1) Auth & Users 
+• Stack: Django (4+), Django REST Framework; JWT via djangorestframework-simplejwt (or 
+your own equivalent). 
+• Default User model only. 
+Signup: input is email, password, role (Seeker | Facilitator). No username field in request. 
+• Email OTP verification flow: 
+O POST /auth/signup → create unverified user, send a 6-digit OTP to email, store with 
+TTL. 
+o POST /auth/verify-email with {email, otp} → mark verified; allow login. 
+o Include expiry (e.g., 5 min) and attempt limits. 
+• Login 
+POST /auth/login with {email, password} → returns access and refresh JWTs. 
+о POST /auth/refresh to rotate/refresh tokens. 
+o Unverified users cannot log in. 
+2) RBAC 
+• Roles: Seeker, Facilitator. 
+• Enforce via DRF permissions / Django permissions. 
+• All endpoints must check role & ownership where relevant. 
+3) Domain Models 
+• Event 
+o Fields: title, description, language, location, starts_at (UTC), ends_at (UTC), capacity (int, 
+optional), created_by (FK 
+• Enrollment 
+← 
+User Facilitator), timestamps. 
+https://docs.ahoum.com/s/documentation/p/backend-task-bmqMI5YYAM 
+1/3 
+12/25/25, 2:08 PM 
+o Fields: event (FK), seeker (FK 
+← 
+Backend Task 
+User), status (enrolled, canceled), timestamps. 
+o Uniqueness: cannot enroll the same seeker twice in the same event (active). 
+4) Seeker Features 
+• Search events with filters: 
+。 Query params: location, language, starts_after, starts_before, q (title/description search), 
+pagination & ordering (upcoming first). 
+• Enroll in event (respect capacity). 
+• List past enrollments (events already ended). 
+• List upcoming enrollments. 
+5) Facilitator Features 
+• CRUD events (only creator can update/delete). 
+• List my events with counts (total enrollments, available seats). 
+6) JWT Tokens 
+• Access & refresh token pair with sensible lifetimes. 
+7) Database & Migrations 
+• PostgreSQL preferred. Include migrations. 
+• Add useful indexes (e.g., starts_at, language, location). 
+8) Docs & Structure 
+• README: setup (env vars), local run, tests, design decisions, tradeoffs. 
+• API docs: Postman collection. 
+Bonus 
+• Dockerized project 
+• Scheduled mail 
+• Send a follow-up email to any seeker who enrolled 1 hour ago. 
+• Send a reminder email to seekers 1 hour before their enrolled event goes live Deploy & share a public base URL 
+Responses 
+• DRF pagination with count, next, previous, results. 
+• Errors follow: 
+{ "detail": "message", "code": "error_code" } 
+https://docs.ahoum.com/s/documentation/p/backend-task-bmqMI5YYAM 
+2/3 
+12/25/25, 2:08 PM 
+Backend Task 
+3/3 
+https://docs.ahoum.com/s/documentation/p/backend-task-bmqMI5YYAM
