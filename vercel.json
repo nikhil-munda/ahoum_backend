@@ -1,4 +1,5 @@
 {
+  "buildCommand": "python manage.py collectstatic --no-input",
   "builds": [
     {
       "src": "api/index.py",
